@@ -211,6 +211,7 @@ func (das *dedupAggrShard) flush(ctx *dedupFlushCtx, f func(samples []pushSample
 		dstSamples = append(dstSamples, pushSample{
 			key:   key,
 			value: s.value,
+			// TODO: timestamp?
 		})
 
 		// Limit the number of samples per each flush in order to limit memory usage.
