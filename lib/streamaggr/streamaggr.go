@@ -15,6 +15,7 @@ import (
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/cgroup"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/encoding"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/envtemplate"
+	"github.com/VictoriaMetrics/VictoriaMetrics/lib/fasttime"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/fs/fscore"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/logger"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/prompbmarshal"
@@ -103,6 +104,9 @@ type Options struct {
 	//
 	// This option can be overriden individually per each aggregation via keep_metric_names option.
 	KeepMetricNames bool
+
+	// Use a custom function for getting timestamps. Just used for testing.
+	Now func() uint64
 }
 
 // Config is a configuration for a single stream aggregation.
@@ -131,6 +135,12 @@ type Config struct {
 	// Staleness interval is interval after which the series state will be reset if no samples have been sent during it.
 	// The parameter is only relevant for outputs: total, total_prometheus, increase, increase_prometheus and histogram_bucket.
 	StalenessInterval string `yaml:"staleness_interval,omitempty"`
+
+	// If greater than zero, the number of seconds (inclusive) a sample can be delayed.
+	// In this mode, sample timestamps are taken into account and aggregated within intervals (defined by intervalSecs).
+	// Aggregated samples have timestamps aligned with the interval.
+	// Default: 0
+	Delay string `yaml:"delay,omitempty"`
 
 	// Outputs is a list of output aggregate functions to produce.
 	//
@@ -417,6 +427,15 @@ func newAggregator(cfg *Config, pushFunc PushFunc, ms *metrics.Set, opts *Option
 		}
 	}
 
+	// check cfg.Delay
+	var delay time.Duration = 0
+	if cfg.Delay != "" {
+		delay, err = time.ParseDuration(cfg.Delay)
+		if err != nil {
+			return nil, fmt.Errorf("cannot parse `delay: %q`: %w", cfg.Delay, err)
+		}
+	}
+
 	// Check cfg.DropInputLabels
 	dropInputLabels := opts.DropInputLabels
 	if v := cfg.DropInputLabels; v != nil {
@@ -458,6 +477,11 @@ func newAggregator(cfg *Config, pushFunc PushFunc, ms *metrics.Set, opts *Option
 		}
 	}
 
+	nowFunc := opts.Now
+	if nowFunc == nil {
+		nowFunc = fasttime.UnixTimestamp
+	}
+
 	// initialize outputs list
 	if len(cfg.Outputs) == 0 {
 		return nil, fmt.Errorf("`outputs` list must contain at least a single entry from the list %s; "+
@@ -491,13 +515,13 @@ func newAggregator(cfg *Config, pushFunc PushFunc, ms *metrics.Set, opts *Option
 		}
 		switch output {
 		case "total":
-			aggrStates[i] = newTotalAggrState(stalenessInterval, false, true, false)
+			aggrStates[i] = newTotalAggrState(interval, stalenessInterval, delay, false, true, false, nowFunc, ms)
 		case "total_prometheus":
-			aggrStates[i] = newTotalAggrState(stalenessInterval, false, false, true)
+			aggrStates[i] = newTotalAggrState(interval, stalenessInterval, delay, false, false, true, nowFunc, ms)
 		case "increase":
-			aggrStates[i] = newTotalAggrState(stalenessInterval, true, true, false)
+			aggrStates[i] = newTotalAggrState(interval, stalenessInterval, delay, true, true, false, nowFunc, ms)
 		case "increase_prometheus":
-			aggrStates[i] = newTotalAggrState(stalenessInterval, true, false, true)
+			aggrStates[i] = newTotalAggrState(interval, stalenessInterval, delay, true, false, true, nowFunc, ms)
 		case "count_series":
 			aggrStates[i] = newCountSeriesAggrState()
 		case "count_samples":
