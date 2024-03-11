@@ -2,6 +2,7 @@ package prompbmarshal
 
 import (
 	"fmt"
+	"github.com/VictoriaMetrics/VictoriaMetrics/lib/prompb"
 )
 
 // MarshalProtobuf marshals wr to dst and returns the result.
@@ -28,4 +29,15 @@ func (wr *WriteRequest) Reset() {
 func ResetTimeSeries(tss []TimeSeries) []TimeSeries {
 	clear(tss)
 	return tss[:0]
+}
+
+func FromPrompb(spans []prompb.BucketSpan) []BucketSpan {
+	var res []BucketSpan
+	for _, span := range spans {
+		res = append(res, BucketSpan{
+			Offset: span.Offset,
+			Length: span.Length,
+		})
+	}
+	return res
 }
