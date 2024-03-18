@@ -15,9 +15,11 @@ import (
 )
 
 var (
-	rowsInserted       = metrics.NewCounter(`vmagent_rows_inserted_total{type="promremotewrite"}`)
-	rowsTenantInserted = tenantmetrics.NewCounterMap(`vmagent_tenant_inserted_rows_total{type="promremotewrite"}`)
-	rowsPerInsert      = metrics.NewHistogram(`vmagent_rows_per_insert{type="promremotewrite"}`)
+	rowsInserted        = metrics.NewCounter(`vmagent_rows_inserted_total{type="promremotewrite"}`)
+	rowsTenantInserted  = tenantmetrics.NewCounterMap(`vmagent_tenant_inserted_rows_total{type="promremotewrite"}`)
+	rowsPerInsert       = metrics.NewHistogram(`vmagent_rows_per_insert{type="promremotewrite"}`)
+	histogramsInserted  = metrics.NewCounter(`vmagent_histograms_inserted_total{type="promremotewrite"}`)
+	histogramsPerInsert = metrics.NewHistogram(`vmagent_historams_per_insert{type="promremotewrite"}`)
 )
 
 // InsertHandler processes remote write for prometheus.
@@ -37,12 +39,16 @@ func insertRows(at *auth.Token, timeseries []prompb.TimeSeries, extraLabels []pr
 	defer common.PutPushCtx(ctx)
 
 	rowsTotal := 0
+	histogramsTotal := 0
 	tssDst := ctx.WriteRequest.Timeseries[:0]
 	labels := ctx.Labels[:0]
 	samples := ctx.Samples[:0]
+	histograms := ctx.Histograms[:0]
 	for i := range timeseries {
 		ts := &timeseries[i]
-		rowsTotal += len(ts.Samples)
+		histogramsTotal += len(ts.Histograms)
+		// Lump both together for now
+		rowsTotal += len(ts.Samples) + histogramsTotal
 		labelsLen := len(labels)
 		for i := range ts.Labels {
 			label := &ts.Labels[i]
@@ -60,21 +66,42 @@ func insertRows(at *auth.Token, timeseries []prompb.TimeSeries, extraLabels []pr
 				Timestamp: sample.Timestamp,
 			})
 		}
+		histogramsLen := len(histograms)
+		for i := range ts.Histograms {
+			histogram := &ts.Histograms[i]
+			histograms = append(histograms, prompbmarshal.Histogram{
+				Count:          histogram.Count,
+				Sum:            histogram.Sum,
+				Schema:         histogram.Schema,
+				ZeroThreshold:  histogram.ZeroThreshold,
+				ZeroCount:      histogram.ZeroCount,
+				NegativeSpans:  prompbmarshal.FromPrompb(histogram.NegativeSpans),
+				NegativeDeltas: histogram.NegativeDeltas,
+				PositiveSpans:  prompbmarshal.FromPrompb(histogram.PositiveSpans),
+				PositiveDeltas: histogram.PositiveDeltas,
+				ResetHint:      prompbmarshal.ResetHint(histogram.ResetHint),
+				Timestamp:      histogram.Timestamp,
+			})
+		}
 		tssDst = append(tssDst, prompbmarshal.TimeSeries{
-			Labels:  labels[labelsLen:],
-			Samples: samples[samplesLen:],
+			Labels:     labels[labelsLen:],
+			Samples:    samples[samplesLen:],
+			Histograms: histograms[histogramsLen:],
 		})
 	}
 	ctx.WriteRequest.Timeseries = tssDst
 	ctx.Labels = labels
 	ctx.Samples = samples
+	ctx.Histograms = histograms
 	if !remotewrite.TryPush(at, &ctx.WriteRequest) {
 		return remotewrite.ErrQueueFullHTTPRetry
 	}
 	rowsInserted.Add(rowsTotal)
+	histogramsInserted.Add(histogramsTotal)
 	if at != nil {
 		rowsTenantInserted.Get(at).Add(rowsTotal)
 	}
 	rowsPerInsert.Update(float64(rowsTotal))
+	histogramsPerInsert.Update(float64(histogramsTotal))
 	return nil
 }
