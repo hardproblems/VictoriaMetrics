@@ -385,6 +385,7 @@ type aggrState interface {
 
 type histogramAggrState interface {
 	pushHistograms(histograms []pushHistogram)
+	flushState(ctx *flushCtx, resetState bool)
 }
 
 // PushFunc is called by Aggregators when it needs to push its state to metrics storage
@@ -757,6 +758,22 @@ func (a *aggregator) flush(pushFunc PushFunc, interval time.Duration, resetState
 			ctx.resetSeries()
 			putFlushCtx(ctx)
 		}(as)
+	}
+	for _, has := range a.histogramAggrStates {
+		flushConcurrencyCh <- struct{}{}
+		wg.Add(1)
+		go func(has histogramAggrState) {
+			defer func() {
+				<-flushConcurrencyCh
+				wg.Done()
+			}()
+
+			ctx := getFlushCtx(a, pushFunc)
+			has.flushState(ctx, resetState)
+			ctx.flushSeries()
+			ctx.resetSeries()
+			putFlushCtx(ctx)
+		}(has)
 	}
 	wg.Wait()
 

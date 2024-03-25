@@ -86,6 +86,7 @@ func (h *Histogram) ToFloatHistogram() *histogram.FloatHistogram {
 	return fh
 }
 
+// Reverse of ToFloatHistogram, convert cumulative bucket counts to deltas
 func FromFloatHistogram(fh *histogram.FloatHistogram) *Histogram {
 	h := &Histogram{}
 	h.ResetHint = ResetHint(fh.CounterResetHint)
@@ -112,17 +113,17 @@ func FromFloatHistogram(fh *histogram.FloatHistogram) *Histogram {
 	}
 
 	h.PositiveDeltas = resize(h.PositiveDeltas, len(fh.PositiveBuckets))
-	var currentPositive int64
+	var previousPositive int64
 	for i, b := range fh.PositiveBuckets {
-		currentPositive += int64(b)
-		h.PositiveDeltas[i] = currentPositive
+		h.PositiveDeltas[i] = int64(b) - previousPositive
+		previousPositive = int64(b)
 	}
 
 	h.NegativeDeltas = resize(h.NegativeDeltas, len(fh.NegativeBuckets))
-	var currentNegative int64
+	var previousNegative int64
 	for i, b := range fh.NegativeBuckets {
-		currentNegative += int64(b)
-		h.NegativeDeltas[i] = currentNegative
+		h.NegativeDeltas[i] = int64(b) - previousNegative
+		previousNegative = int64(b)
 	}
 
 	return h

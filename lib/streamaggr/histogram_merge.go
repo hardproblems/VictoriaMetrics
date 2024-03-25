@@ -72,7 +72,15 @@ func (as *histogramMergeAggrState) pushHistograms(histograms []pushHistogram) {
 		v, ok := as.m.Load(outputKey)
 		if !ok {
 			// The entry is missing in the map. Try creating it.
-			v = &histogramMergeStateValue{}
+			zeroHisto := histogram.FloatHistogram{
+				CounterResetHint: histogram.CounterResetHint(h.value.ResetHint),
+				Schema:           h.value.Schema,
+				ZeroThreshold:    h.value.ZeroThreshold,
+			}
+			v = &histogramMergeStateValue{
+				lastValues: make(map[string]lastHistogramState),
+				merged:     zeroHisto,
+			}
 			vNew, loaded := as.m.LoadOrStore(outputKey, v)
 			if loaded {
 				// Use the entry created by a concurrent goroutine.
