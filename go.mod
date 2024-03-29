@@ -19,6 +19,7 @@ require (
 	github.com/cheggaaa/pb/v3 v3.1.5
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/snappy v0.0.4
+	github.com/google/go-cmp v0.6.0
 	github.com/googleapis/gax-go/v2 v2.12.2
 	github.com/influxdata/influxdb v1.11.5
 	github.com/klauspost/compress v1.17.7
