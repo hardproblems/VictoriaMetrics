@@ -565,11 +565,12 @@ func newAggregator(cfg *Config, pushFunc PushFunc, ms *metrics.Set, opts *Option
 	}
 
 	histogramAggrStates := make([]histogramAggrState, len(cfg.HistogramOutputs))
+	histogramMerge := newHistogramMergeAggrState(stalenessInterval, false, true)
 	if len(cfg.HistogramOutputs) > 0 {
 		for i, output := range cfg.HistogramOutputs {
 			switch output {
 			case HistogramMerge:
-				histogramAggrStates[i] = newHistogramMergeAggrState(stalenessInterval, false, true)
+				histogramAggrStates[i] = histogramMerge
 			default:
 				return nil, fmt.Errorf("unsupported histogram_output=%q; supported values: [%s]; ",
 					output, HistogramMerge)
@@ -613,6 +614,7 @@ func newAggregator(cfg *Config, pushFunc PushFunc, ms *metrics.Set, opts *Option
 		flushTimeouts:      ms.GetOrCreateCounter(`vm_streamaggr_flush_timeouts_total`),
 		dedupFlushTimeouts: ms.GetOrCreateCounter(`vm_streamaggr_dedup_flush_timeouts_total`),
 	}
+	histogramMerge.setLc(&a.lc)
 	if dedupInterval > 0 {
 		a.da = newDedupAggr()
 	}

@@ -1,7 +1,9 @@
 package streamaggr
 
 import (
+	"github.com/VictoriaMetrics/VictoriaMetrics/lib/logger"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/prompbmarshal"
+	"github.com/VictoriaMetrics/VictoriaMetrics/lib/promutils"
 	"sync"
 	"time"
 
@@ -33,6 +35,8 @@ type histogramMergeAggrState struct {
 	// Ignore samples which were older than the last seen sample. This is preferable to treating it as a
 	// counter reset.
 	ignoreOutOfOrderSamples bool
+
+	lc *promutils.LabelsCompressor
 }
 
 type histogramMergeStateValue struct {
@@ -61,11 +65,20 @@ func newHistogramMergeAggrState(stalenessInterval time.Duration, keepFirstSample
 	}
 }
 
+func (as *histogramMergeAggrState) setLc(labelsCompressor *promutils.LabelsCompressor) {
+	as.lc = labelsCompressor
+}
+
 func (as *histogramMergeAggrState) pushHistograms(histograms []pushHistogram) {
 	currentTime := fasttime.UnixTimestamp()
 	deleteDeadline := currentTime + as.stalenessSecs
 	for i := range histograms {
 		h := &histograms[i]
+		fh := h.value.ToFloatHistogram()
+		if err := fh.Validate(); err != nil {
+			logger.Errorf("Skipping invalid input histogram (%s) %v", h.key, err)
+			continue
+		}
 		inputKey, outputKey := getInputOutputKey(h.key)
 
 	again:
@@ -95,15 +108,27 @@ func (as *histogramMergeAggrState) pushHistograms(histograms []pushHistogram) {
 			outOfOrder := ok && lv.timestamp > h.value.Timestamp
 			if !as.ignoreOutOfOrderSamples || !outOfOrder {
 				if ok {
-					if h.value.Count >= uint64(lv.value.Count) ||
-						h.value.Sum >= lv.value.Sum {
-						sv.merged.Add(h.value.ToFloatHistogram().Sub(lv.value))
+					if !fh.DetectReset(lv.value) {
+						sv.merged.Add(fh).Sub(lv.value)
 					} else {
-						// reset
-						sv.merged.Add(h.value.ToFloatHistogram())
+						// reset detected
+						var labels []prompbmarshal.Label
+						labels = decompressLabels(labels, as.lc, outputKey)
+						logger.Warnf("Input histogram reset detected! labels: %v, curr: %s, prev: %s", labels, fh.TestExpression(), lv.value.TestExpression())
+						sv.merged.Add(fh)
+					}
+					if err := sv.merged.Validate(); err != nil {
+						var labels []prompbmarshal.Label
+						labels = decompressLabels(labels, as.lc, outputKey)
+						logger.Errorf("Merged histogram is invalid! labels: %v, value: %s, err: %v", labels, sv.merged.TestExpression(), err)
+						sv.merged = histogram.FloatHistogram{
+							CounterResetHint: histogram.CounterReset,
+							Schema:           h.value.Schema,
+							ZeroThreshold:    h.value.ZeroThreshold,
+						}
 					}
 				}
-				lv.value = h.value.ToFloatHistogram()
+				lv.value = fh
 				lv.timestamp = h.value.Timestamp
 				lv.deleteDeadline = deleteDeadline
 				sv.lastValues[inputKey] = lv
