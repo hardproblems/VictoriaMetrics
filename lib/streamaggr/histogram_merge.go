@@ -159,6 +159,7 @@ func (as *histogramMergeAggrState) flushState(ctx *flushCtx, resetState bool) {
 		sv := v.(*histogramMergeStateValue)
 		sv.mu.Lock()
 		if !sv.deleted {
+			sv.merged.Compact(0) // reduce buckets before sending to storage
 			key := k.(string)
 			value := prompbmarshal.FromFloatHistogram(&sv.merged)
 			value.Timestamp = currentTimeMsec
