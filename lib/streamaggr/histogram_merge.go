@@ -114,7 +114,7 @@ func (as *histogramMergeAggrState) pushHistograms(histograms []pushHistogram) {
 						// reset detected
 						var labels []prompbmarshal.Label
 						labels = decompressLabels(labels, as.lc, outputKey)
-						logger.Warnf("Input histogram reset detected! labels: %v, curr: %s, prev: %s", labels, fh.TestExpression(), lv.value.TestExpression())
+						logger.Infof("Input histogram reset detected! labels: %v, curr: %s, prev: %s", labels, fh.TestExpression(), lv.value.TestExpression())
 						sv.merged.Add(fh)
 					}
 					if err := sv.merged.Validate(); err != nil {
