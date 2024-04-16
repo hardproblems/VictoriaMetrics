@@ -47,8 +47,7 @@ func insertRows(at *auth.Token, timeseries []prompb.TimeSeries, extraLabels []pr
 	for i := range timeseries {
 		ts := &timeseries[i]
 		histogramsTotal += len(ts.Histograms)
-		// Lump both together for now
-		rowsTotal += len(ts.Samples) + histogramsTotal
+		rowsTotal += len(ts.Samples)
 		labelsLen := len(labels)
 		for i := range ts.Labels {
 			label := &ts.Labels[i]
